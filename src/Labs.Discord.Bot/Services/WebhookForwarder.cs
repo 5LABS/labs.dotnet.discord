@@ -8,7 +8,7 @@ public sealed class WebhookForwarder
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<WebhookForwarder> _logger;
-    private readonly string _webhookUrl;
+    private readonly Dictionary<string, string> _guildWebhooks;
 
     public WebhookForwarder(
         HttpClient httpClient,
@@ -17,16 +17,32 @@ public sealed class WebhookForwarder
     {
         _httpClient = httpClient;
         _logger = logger;
-        _webhookUrl = configuration["N8N_WEBHOOK_URL"]
-            ?? throw new InvalidOperationException(
-                "N8N_WEBHOOK_URL is not configured. Set it via environment variable or appsettings.json.");
+
+        _guildWebhooks = configuration.GetSection("Webhooks")
+            .GetChildren()
+            .Where(c => !string.IsNullOrWhiteSpace(c.Value))
+            .ToDictionary(c => c.Key, c => c.Value!);
+
+        if (_guildWebhooks.Count == 0)
+            logger.LogWarning("No guild webhooks configured. Add Webhooks:<GuildId> entries to configuration.");
+        else
+            logger.LogInformation("Loaded webhooks for {Count} guild(s): {GuildIds}",
+                _guildWebhooks.Count, string.Join(", ", _guildWebhooks.Keys));
     }
 
-    public async Task ForwardMessageAsync(WebhookPayload payload, CancellationToken cancellationToken = default)
+    public bool HasWebhook(string guildId) => _guildWebhooks.ContainsKey(guildId);
+
+    public async Task ForwardMessageAsync(string guildId, WebhookPayload payload, CancellationToken cancellationToken = default)
     {
+        if (!_guildWebhooks.TryGetValue(guildId, out var webhookUrl))
+        {
+            _logger.LogDebug("No webhook configured for guild {GuildId}, skipping", guildId);
+            return;
+        }
+
         try
         {
-            var response = await _httpClient.PostAsJsonAsync(_webhookUrl, payload, cancellationToken);
+            var response = await _httpClient.PostAsJsonAsync(webhookUrl, payload, cancellationToken);
             response.EnsureSuccessStatusCode();
             _logger.LogInformation(
                 "Forwarded message from {Username} in guild {GuildId}/channel {ChannelId} to n8n webhook",
@@ -35,8 +51,8 @@ public sealed class WebhookForwarder
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "Failed to forward message from {Username} to n8n webhook",
-                payload.Username);
+                "Failed to forward message from {Username} in guild {GuildId} to n8n webhook",
+                payload.Username, guildId);
         }
     }
 }

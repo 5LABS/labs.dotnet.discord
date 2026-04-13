@@ -1,5 +1,4 @@
 using Labs.Discord.Bot.Services;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using NetCord.Gateway;
 using NetCord.Hosting.Gateway;
@@ -11,34 +10,27 @@ public sealed class MessageHandler : IGatewayEventHandler<Message>
 {
     private readonly WebhookForwarder _forwarder;
     private readonly ILogger<MessageHandler> _logger;
-    private readonly HashSet<string> _allowedGuildIds;
 
     public MessageHandler(
         WebhookForwarder forwarder,
-        IConfiguration configuration,
         ILogger<MessageHandler> logger)
     {
         _forwarder = forwarder;
         _logger = logger;
-
-        var allowedGuilds = configuration["ALLOWED_GUILD_IDS"];
-        _allowedGuildIds = string.IsNullOrWhiteSpace(allowedGuilds)
-            ? []
-            : allowedGuilds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet();
     }
 
     public async ValueTask HandleAsync(Message message)
     {
-        // Ignore bot messages
         if (message.Author.IsBot)
             return;
 
-        // If allowed guild IDs are configured, only forward messages from those guilds
-        if (_allowedGuildIds.Count > 0 && message.GuildId.HasValue)
-        {
-            if (!_allowedGuildIds.Contains(message.GuildId.Value.ToString()))
-                return;
-        }
+        if (!message.GuildId.HasValue)
+            return;
+
+        var guildId = message.GuildId.Value.ToString();
+
+        if (!_forwarder.HasWebhook(guildId))
+            return;
 
         var attachments = message.Attachments
             .Select(a => new WebhookAttachment(
@@ -51,17 +43,18 @@ public sealed class MessageHandler : IGatewayEventHandler<Message>
         var payload = new WebhookPayload(
             MessageId: message.Id.ToString(),
             Content: message.Content,
-            Username: $"{message.Author.Username}",
+            Username: message.Author.Username,
             UserId: message.Author.Id.ToString(),
             ChannelId: message.ChannelId.ToString(),
             ChannelName: message.ChannelId.ToString(),
-            GuildId: message.GuildId?.ToString(),
-            GuildName: message.GuildId?.ToString(),
+            GuildId: guildId,
+            GuildName: guildId,
             Timestamp: message.CreatedAt,
             Attachments: attachments);
 
-        _logger.LogDebug("Processing message {MessageId} from {Username}", message.Id, message.Author.Username);
+        _logger.LogDebug("Processing message {MessageId} from {Username} in guild {GuildId}",
+            message.Id, message.Author.Username, guildId);
 
-        await _forwarder.ForwardMessageAsync(payload);
+        await _forwarder.ForwardMessageAsync(guildId, payload);
     }
 }

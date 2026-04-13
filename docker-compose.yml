@@ -5,5 +5,8 @@ services:
     restart: unless-stopped
     environment:
       - Discord__Token=${DISCORD_TOKEN}
-      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
-      - ALLOWED_GUILD_IDS=${ALLOWED_GUILD_IDS:-}
+      # Map each guild to its own n8n webhook:
+      # WEBHOOKS__<GuildId>=<webhook-url>
+      - Webhooks__${GUILD_ID_1}=${WEBHOOK_URL_1:-}
+      - Webhooks__${GUILD_ID_2}=${WEBHOOK_URL_2:-}
+      - Webhooks__${GUILD_ID_3}=${WEBHOOK_URL_3:-}
