@@ -1,0 +1,9 @@
+services:
+  discord-bot:
+    build: .
+    container_name: labs-discord-bot
+    restart: unless-stopped
+    environment:
+      - Discord__Token=${DISCORD_TOKEN}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - ALLOWED_GUILD_IDS=${ALLOWED_GUILD_IDS:-}
